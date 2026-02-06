@@ -1,0 +1,250 @@
+<!DOCTYPE html>
+<html lang="fi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Nimi-sanapyramidi</title>
+<style>
+body { margin:0; padding:0; font-family: Arial, sans-serif; background:#1e1e1e; color:white; text-align:center; overflow-x:hidden; }
+#start-screen { display:flex; flex-direction:column; justify-content:center; align-items:center; height:100vh; }
+#start-screen button { margin-top:20px; padding:14px 36px; font-size:18px; border:none; border-radius:24px; background:#bb86fc; color:#222; cursor:pointer; font-weight:700; }
+#start-screen button:hover { background:#a363f7; }
+
+#game-screen { display:none; padding-top:20px; }
+#message { font-size:18px; height:28px; margin-bottom:12px; font-weight:bold; }
+
+#pyramid { max-width:500px; margin:0 auto; position:relative; }
+.row { display:flex; justify-content:center; margin:8px 0; position:relative; }
+.tile { background:#e0e0e0; color:#222; border-radius:14px; cursor:pointer; font-weight:700; display:flex; align-items:center; justify-content:center; text-align:center; padding:12px; width:90px; height:90px; font-size:16px; transition: all 0.5s ease; position:relative; }
+.tile.selected { background:#c2a6f7; }
+.tile.locked { cursor:default; pointer-events:none; }
+.tile.glow { box-shadow:0 0 15px 4px #ff69b4; font-size:20px; }
+
+#buttons-container { display:flex; justify-content:center; gap:24px; margin:12px 0; }
+#buttons-container button { padding:12px 36px; border:none; border-radius:24px; font-weight:700; font-size:16px; cursor:pointer; user-select:none; transition:0.3s; }
+#check { background:#bb86fc; color:#222; }
+#check:hover:not(:disabled){ background:#a363f7; }
+#hint { background:#90caf9; color:#222; }
+#hint:hover:not(:disabled){ background:#64b5f6; }
+#hint:disabled{ background:#555; cursor:default; }
+
+#lives { margin-top:8px; display:flex; justify-content:center; gap:10px; }
+.life-dot { width:16px; height:16px; border-radius:50%; background:#bb86fc; box-shadow:0 0 6px #bb86fc; transition:opacity 0.3s ease; }
+.life-dot.lost { opacity:0.2; box-shadow:none; }
+
+.category-label { font-size:16px; text-align:center; margin-bottom:4px; font-weight:bold; }
+
+.firework{ position:fixed;width:8px;height:8px;border-radius:50%;pointer-events:none;animation:explode 1s ease forwards;z-index:9999; }
+@keyframes explode{ 0%{ opacity:1; transform: scale(1) translate(0,0); } 100%{ opacity:0; transform: scale(3) translate(calc(var(--x)*50px), calc(var(--y)*50px)); } }
+
+.heart{ position:fixed; width:20px; height:20px; background:#ff1744; clip-path: polygon(50% 0%, 61% 10%, 68% 23%, 68% 38%, 50% 62%, 32% 38%, 32% 23%, 39% 10%); opacity:0.8; animation:fall linear infinite; z-index:998; }
+@keyframes fall{ 0% { transform: translateY(-50px) rotate(0deg); opacity:1; } 100% { transform: translateY(110vh) rotate(360deg); opacity:0; } }
+</style>
+</head>
+<body>
+
+<div id="start-screen">
+  <h1>Nimi-sanapyramidi</h1>
+  <button id="start-button">Pelaa</button>
+</div>
+
+<div id="game-screen">
+  <div id="message"></div>
+  <div id="pyramid"></div>
+  <div id="buttons-container">
+    <button id="check">Tarkasta</button>
+    <button id="hint">Vinkki</button>
+  </div>
+  <div id="lives"></div>
+</div>
+
+<script>
+const startBtn=document.getElementById("start-button");
+const startScreen=document.getElementById("start-screen");
+const gameScreen=document.getElementById("game-screen");
+const pyramid=document.getElementById("pyramid");
+const messageDiv=document.getElementById("message");
+const checkBtn=document.getElementById("check");
+const hintBtn=document.getElementById("hint");
+const livesDiv=document.getElementById("lives");
+
+startBtn.addEventListener("click",()=>{ startScreen.style.display="none"; gameScreen.style.display="block"; init(); });
+
+const groups=[
+  { name:"", items:["Adrian"] },
+  { name:"Tyttäremme nimi", items:["Livia","Christina"], fireworks:true },
+  { name:"Isoäitimme nimet", items:["Marjatta","Riitta-Liisa","Anne"] },
+  { name:"Isoisiemme nimet", items:["Harri","Henrik","Kurt","Carl-Eric"] },
+  { name:"Nimivaihtoehtoja joita emme päätyneet käyttämään", items:["Joakim","Maria","Mateo","Luna","Aurora"] }
+];
+
+let allNames=[], selectedTiles=[], solved=[], mistakes=0, maxMistakes=4, hintCount=0;
+const rowColors=["#add8e6","#ffb6c1","#fff176","#81c784","#ba68c8"];
+
+function shuffleArray(arr){for(let i=arr.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[arr[i],arr[j]]=[arr[j],arr[i]];}}
+
+function init(){
+  pyramid.innerHTML=""; solved=[]; mistakes=0; hintCount=0; selectedTiles=[];
+  allNames=groups.flatMap(g=>g.items); shuffleArray(allNames);
+  renderPyramid(); renderLives(); messageDiv.textContent="";
+  checkBtn.disabled=false; hintBtn.disabled=false;
+}
+
+function renderLives(){
+  livesDiv.innerHTML="";
+  for(let i=0;i<maxMistakes-mistakes;i++){ const d=document.createElement("div"); d.className="life-dot"; livesDiv.appendChild(d); }
+  for(let i=0;i<mistakes;i++){ const d=document.createElement("div"); d.className="life-dot lost"; livesDiv.appendChild(d); }
+}
+
+function renderPyramid(){
+  const rowCounts=[1,2,3,4,5]; let index=0;
+  for(let r=0;r<rowCounts.length;r++){
+    const rowDiv=document.createElement("div"); rowDiv.classList.add("row");
+    for(let c=0;c<rowCounts[r];c++){
+      if(index>=allNames.length) break;
+      const tile=document.createElement("div"); tile.className="tile"; tile.textContent=allNames[index++];
+      tile.dataset.row=r; tile.dataset.pos=c;
+      tile.addEventListener("click",()=>onTileClick(tile));
+      rowDiv.appendChild(tile);
+    }
+    pyramid.appendChild(rowDiv);
+  }
+}
+
+function onTileClick(tile){
+  if(tile.classList.contains("locked")) return;
+  if(tile.classList.contains("selected")){
+    tile.classList.remove("selected"); selectedTiles=selectedTiles.filter(t=>t!==tile);
+    tile.style.backgroundColor="#e0e0e0";
+  } else {
+    if(selectedTiles.length>=5) return;
+    tile.classList.add("selected"); selectedTiles.push(tile);
+    selectedTiles.forEach(t=>t.style.backgroundColor="#c2a6f7");
+  }
+}
+
+function moveTile(tile,rowIndex,posIndex,left=false){
+  const rowDivs=pyramid.querySelectorAll(".row");
+  const targetRow=rowDivs[rowIndex];
+  const rowCount=groups[rowIndex].items.length;
+  const offsetX=(posIndex-(rowCount-1)/2)*(tile.offsetWidth+12);
+  tile.style.transition="all 0.6s ease";
+  tile.style.transform=`translate(${left?-Math.abs(offsetX):offsetX}px,0)`;
+  tile.style.backgroundColor=rowColors[rowIndex]; tile.style.color="#222";
+  setTimeout(()=>{
+    targetRow.appendChild(tile); tile.style.transform="translate(0,0)";
+  },600);
+}
+
+function arrayEquals(a,b){if(a.length!==b.length) return false; for(let i=0;i<a.length;i++) if(a[i]!==b[i]) return false; return true;}
+
+checkBtn.addEventListener("click",()=>{
+  if(selectedTiles.length===0){ messageDiv.textContent="Valitse ensin ruudut."; return; }
+  let found=false;
+  groups.forEach((group,groupIndex)=>{
+    if(solved.includes(group.name)) return;
+    if(arrayEquals(selectedTiles.map(t=>t.textContent).sort(),group.items.slice().sort())){
+      messageDiv.textContent="Oikein!"; solved.push(group.name);
+      selectedTiles.forEach((tile,idx)=>moveTile(tile,groupIndex,idx,false));
+      selectedTiles.forEach(t=>t.classList.add("locked"));
+      selectedTiles=[];
+      found=true;
+    }
+  });
+  if(!found){
+    mistakes++; messageDiv.textContent="Väärin, yritä uudelleen"; clearSelection(); renderLives();
+    if(mistakes>=maxMistakes) endGame(false);
+  }
+  if(solved.length===groups.length) endGame(true);
+});
+
+function clearSelection(){ selectedTiles.forEach(t=>{ t.classList.remove("selected"); t.style.backgroundColor="#e0e0e0"; }); selectedTiles=[]; }
+
+hintBtn.addEventListener("click",()=>{
+  if(hintCount>=3) return;
+  const hintOrder=[groups[4],groups[3],groups[2]];
+  const group=hintOrder[hintCount]; hintCount++;
+  if(solved.includes(group.name)) return;
+
+  const firstName=group.items[0];
+  const tiles=Array.from(document.querySelectorAll(".tile"));
+  const tileToHint=tiles.find(t=>t.textContent===firstName);
+  if(tileToHint){
+    moveTile(tileToHint,groups.indexOf(group),0,true);
+    tileToHint.classList.remove("selected");
+  }
+  if(hintCount>=3) hintBtn.disabled=true;
+});
+
+function endGame(won){
+  checkBtn.disabled=true; hintBtn.disabled=true; clearSelection();
+
+  groups.forEach((group,groupIndex)=>{
+    const rowDivs=pyramid.querySelectorAll(".row");
+    const targetRow=rowDivs[groupIndex];
+    group.items.forEach((name,idx)=>{
+      const tile=Array.from(document.querySelectorAll(".tile")).find(t=>t.textContent===name);
+      if(tile){
+        moveTile(tile,groupIndex,idx,false);
+        tile.classList.add("locked");
+        tile.style.backgroundColor=rowColors[groupIndex];
+        if(group.name==="Tyttäremme nimi") tile.classList.add("glow");
+      }
+    });
+  });
+
+  // Näytä kategoriat rivien yläpuolella
+  const rowDivs=pyramid.querySelectorAll(".row");
+  rowDivs.forEach((rowDiv,idx)=>{
+    if(!rowDiv.previousElementSibling || !rowDiv.previousElementSibling.classList.contains("category-label")){
+      const label=document.createElement("div");
+      label.className="category-label";
+      label.style.color=rowColors[idx];
+      label.textContent=groups[idx].name;
+      rowDiv.parentNode.insertBefore(label,rowDiv);
+    }
+  });
+
+  messageDiv.textContent = won ? "Onneksi olkoon! Vastasit kaikki oikein!" : "Peli päättyi. Tässä oikeat vastaukset:";
+
+  // Käynnistä lopun efektit
+  startFireworksOnSecondRow();
+  startHeartRain();
+}
+
+// Räjähtävät ilotulitukset toisen rivin ympärillä loppupelissä
+function startFireworksOnSecondRow(){
+  const rowDivs = pyramid.querySelectorAll(".row");
+  const secondRow = rowDivs[1]; 
+  setInterval(()=>{
+    secondRow.querySelectorAll(".tile").forEach(tile=>{
+      const f = document.createElement("div");
+      f.className="firework";
+      const rect = tile.getBoundingClientRect();
+      f.style.left = (rect.left + rect.width/2) + "px";
+      f.style.top = (rect.top + rect.height/2) + "px";
+      f.style.background=`hsl(${Math.random()*360},80%,75%)`;
+      f.style.setProperty("--x",(Math.random()*2-1).toFixed(2));
+      f.style.setProperty("--y",(Math.random()*2-1).toFixed(2));
+      document.body.appendChild(f);
+      setTimeout(()=>f.remove(),1100);
+    });
+  }, 400);
+}
+
+// Punaiset sydämet satelemaan loppupelissä
+function startHeartRain(){
+  setInterval(()=>{
+    const heart=document.createElement("div");
+    heart.className="heart";
+    heart.style.left=(Math.random()*window.innerWidth)+"px";
+    heart.style.background="#ff1744";
+    heart.style.animationDuration=(3+Math.random()*3)+"s";
+    document.body.appendChild(heart);
+    setTimeout(()=>heart.remove(),6000);
+  },300);
+}
+</script>
+
+</body>
+</html>
